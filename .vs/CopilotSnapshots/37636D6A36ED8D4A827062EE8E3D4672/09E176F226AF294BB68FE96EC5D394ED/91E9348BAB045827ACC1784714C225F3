@@ -1,0 +1,110 @@
+﻿using BepInEx;
+using BepInEx.Configuration;
+using HarmonyLib;
+
+namespace SurtlingCoreFuel
+{
+    [BepInPlugin("com.MoistGravy.SurtlingCoreFuel", "Surtling Core Fuel", "1.0.0")]
+    public class Plugin : BaseUnityPlugin
+    {
+        internal const string SurtlingCoreItemName = "SurtlingCore";
+
+        public static Plugin Instance { get; private set; }
+        public static ConfigEntry<int> SurtlingCoreFuelMultiplier { get; private set; }
+
+        private Harmony _harmony;
+
+        private void Awake()
+        {
+            Instance = this;
+            SurtlingCoreFuelMultiplier = Config.Bind(
+                "General",
+                "SurtlingCoreFuelMultiplier",
+                5,
+                "How much fuel a surtling core provides relative to one coal.");
+            _harmony = new Harmony("com.MoistGravy.SurtlingCoreFuel");
+            _harmony.PatchAll();
+            Logger.LogInfo("Surtling Core Fuel loaded successfully.");
+        }
+
+        private void OnDestroy()
+        {
+            _harmony?.UnpatchSelf();
+        }
+
+        internal static bool IsSmelterTarget(Smelter smelter)
+        {
+            if (smelter == null || smelter.gameObject == null)
+            {
+                return false;
+            }
+
+            var name = smelter.gameObject.name.ToLowerInvariant();
+            return name.Contains("smelter") || name.Contains("blastfurnace");
+        }
+
+        internal static ItemDrop GetSurtlingCoreItem()
+        {
+            if (ObjectDB.instance == null)
+            {
+                return null;
+            }
+
+            var prefab = ObjectDB.instance.GetItemPrefab(SurtlingCoreItemName);
+            return prefab != null ? prefab.GetComponent<ItemDrop>() : null;
+        }
+    }
+
+    [HarmonyPatch(typeof(Smelter), nameof(Smelter.Awake))]
+    public static class SmelterAwakePatch
+    {
+        private static void Postfix(Smelter __instance)
+        {
+            if (!Plugin.IsSmelterTarget(__instance))
+            {
+                return;
+            }
+
+            var surtlingCore = Plugin.GetSurtlingCoreItem();
+            if (surtlingCore == null || __instance.m_fuelItems == null)
+            {
+                return;
+            }
+
+            if (!__instance.m_fuelItems.Contains(surtlingCore))
+            {
+                __instance.m_fuelItems.Add(surtlingCore);
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(Smelter), nameof(Smelter.OnAddFuel))]
+    public static class SmelterAddFuelPatch
+    {
+        private static bool Prefix(Smelter __instance, Humanoid user, ItemDrop.ItemData item, ref bool __result)
+        {
+            if (!Plugin.IsSmelterTarget(__instance) || item == null)
+            {
+                return true;
+            }
+
+            if (!string.Equals(item.m_shared.m_name, "$item_{Plugin.SurtlingCoreItemName}", System.StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            if (__instance.m_fuel >= __instance.m_maxFuel)
+            {
+                __result = false;
+                return false;
+            }
+
+            var multiplier = System.Math.Max(1, Plugin.SurtlingCoreFuelMultiplier?.Value ?? 1);
+            __instance.m_fuel = UnityEngine.Mathf.Min(__instance.m_maxFuel, __instance.m_fuel + (__instance.m_fuelPerItem * multiplier));
+            user.GetInventory().RemoveItem(item.m_shared.m_name, 1);
+            __instance.m_nview.InvokeRPC("AddFuel", new object[] { });
+            __result = true;
+            return false;
+        }
+    }
+}

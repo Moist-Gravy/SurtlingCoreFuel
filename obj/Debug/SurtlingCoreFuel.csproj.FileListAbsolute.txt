@@ -1,0 +1,6 @@
+C:\Program Files (x86)\Steam\steamapps\common\Valheim\BepInEx\plugins\SurtlingCoreFuel.dll
+C:\Program Files (x86)\Steam\steamapps\common\Valheim\BepInEx\plugins\SurtlingCoreFuel.pdb
+C:\Users\Andi\Documents\Valheim Mods\SurtlingCoreFuel\obj\Debug\SurtlingCoreFuel.csproj.AssemblyReference.cache
+C:\Users\Andi\Documents\Valheim Mods\SurtlingCoreFuel\obj\Debug\SurtlingCoreFuel.csproj.CoreCompileInputs.cache
+C:\Users\Andi\Documents\Valheim Mods\SurtlingCoreFuel\obj\Debug\SurtlingCoreFuel.dll
+C:\Users\Andi\Documents\Valheim Mods\SurtlingCoreFuel\obj\Debug\SurtlingCoreFuel.pdb

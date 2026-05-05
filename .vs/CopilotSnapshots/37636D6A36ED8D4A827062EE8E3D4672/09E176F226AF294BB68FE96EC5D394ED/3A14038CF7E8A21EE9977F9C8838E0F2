@@ -1,0 +1,26 @@
+﻿using BepInEx;
+using BepInEx.Configuration;
+using HarmonyLib;
+
+namespace SurtlingCoreFuel  // change this to match your mod
+{
+    [BepInPlugin("com.MoistGravy.SurtlingCoreFuel", "Your Mod Display Name", "1.0.0")]
+    public class Plugin : BaseUnityPlugin
+    {
+        public static Plugin Instance { get; private set; }
+        private Harmony _harmony;
+
+        private void Awake()
+        {
+            Instance = this;
+            _harmony = new Harmony("com.MoistGravy.SurtlingCoreFuel");
+            _harmony.PatchAll();
+            Logger.LogInfo("Mod loaded successfully!");
+        }
+
+        private void OnDestroy()
+        {
+            _harmony?.UnpatchSelf();
+        }
+    }
+}

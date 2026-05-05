@@ -1,0 +1,6 @@
+c:\Users\Andi\Documents\Valheim Mods\SurtlingCoreFuel\bin\Release\SurtlingCoreFuel.dll
+c:\Users\Andi\Documents\Valheim Mods\SurtlingCoreFuel\bin\Release\SurtlingCoreFuel.pdb
+c:\Users\Andi\Documents\Valheim Mods\SurtlingCoreFuel\obj\Release\SurtlingCoreFuel.csproj.AssemblyReference.cache
+c:\Users\Andi\Documents\Valheim Mods\SurtlingCoreFuel\obj\Release\SurtlingCoreFuel.csproj.CoreCompileInputs.cache
+c:\Users\Andi\Documents\Valheim Mods\SurtlingCoreFuel\obj\Release\SurtlingCoreFuel.dll
+c:\Users\Andi\Documents\Valheim Mods\SurtlingCoreFuel\obj\Release\SurtlingCoreFuel.pdb
