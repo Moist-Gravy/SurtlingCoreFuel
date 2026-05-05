@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using BepInEx;
 using BepInEx.Configuration;
 using HarmonyLib;
@@ -6,11 +6,14 @@ using UnityEngine;
 
 namespace SurtlingCoreFuel
 {
-    [BepInPlugin("com.MoistGravy.SurtlingCoreFuel", "Surtling Core Fuel", "1.0.0")]
+    [BepInPlugin("com.MoistGravy.SurtlingCoreFuel", "Surtling Core Fuel", "1.1.0")]
     public class Plugin : BaseUnityPlugin
     {
         internal const string SurtlingCoreItemName = "SurtlingCore";
         internal const string RpcAddCoreFuel = "RPC_SCF_AddCoreFuel";
+
+        /// <summary>ZDO float: how many of the current fuel units are core-sourced.</summary>
+        private static readonly int ZdoCoreFuelKey = StableHash("SCF_CoreFuel_v2");
 
         public static Plugin Instance { get; private set; }
         public static ConfigEntry<int> SurtlingCoreFuelMultiplier { get; private set; }
@@ -24,7 +27,8 @@ namespace SurtlingCoreFuel
                 "General",
                 "SurtlingCoreFuelMultiplier",
                 5,
-                "How many coal-equivalent fuel units one Surtling Core provides (1 unit = the same fuel as 1 piece of coal for that smelter or blast furnace).");
+                "How many coal-equivalent fuel units one Surtling Core provides. " +
+                "A core occupies 1 fuel slot but burns for this many times longer than coal.");
 
             _harmony = new Harmony("com.MoistGravy.SurtlingCoreFuel");
             _harmony.PatchAll();
@@ -35,6 +39,8 @@ namespace SurtlingCoreFuel
         {
             _harmony?.UnpatchSelf();
         }
+
+        // ────────────────── Helpers ──────────────────
 
         internal static bool IsSmelterTarget(Smelter smelter)
         {
@@ -72,6 +78,20 @@ namespace SurtlingCoreFuel
             return string.Equals(name, SurtlingCoreItemName, StringComparison.OrdinalIgnoreCase);
         }
 
+        private static int StableHash(string text)
+        {
+            unchecked
+            {
+                uint h = 2166136261;
+                foreach (var c in text)
+                {
+                    h = (h ^ c) * 16777619;
+                }
+
+                return (int)h;
+            }
+        }
+
         private static ZNetView GetNView(Smelter smelter)
         {
             return AccessTools.Field(typeof(Smelter), "m_nview").GetValue(smelter) as ZNetView;
@@ -95,7 +115,9 @@ namespace SurtlingCoreFuel
             return null;
         }
 
-        internal static void RpcAddCoreFuelHandler(ZNetView nview, Smelter smelter, int fuelToAdd)
+        // ────────────────── RPC Handler ──────────────────
+
+        internal static void RpcAddCoreFuelHandler(ZNetView nview, Smelter smelter, int unused)
         {
             if (nview == null || smelter == null || !nview.IsOwner())
             {
@@ -115,14 +137,23 @@ namespace SurtlingCoreFuel
                 return;
             }
 
-            var applied = Mathf.Min(fuelToAdd, space);
-            zdo.Set(ZDOVars.s_fuel, current + applied);
+            // Add exactly 1 fuel unit (same footprint as 1 coal)
+            zdo.Set(ZDOVars.s_fuel, current + 1f);
+
+            // Track it as core fuel
+            var coreFuel = zdo.GetFloat(ZdoCoreFuelKey, 0f);
+            zdo.Set(ZdoCoreFuelKey, coreFuel + 1f);
 
             if (smelter.m_fuelAddedEffects != null)
             {
-                smelter.m_fuelAddedEffects.Create(smelter.transform.position, smelter.transform.rotation, smelter.transform, 1f, -1);
+                smelter.m_fuelAddedEffects.Create(
+                    smelter.transform.position,
+                    smelter.transform.rotation,
+                    smelter.transform, 1f, -1);
             }
         }
+
+        // ────────────────── Smelter.Awake — register RPC ──────────────────
 
         [HarmonyPatch(typeof(Smelter), "Awake")]
         internal static class SmelterAwakePatch
@@ -146,6 +177,8 @@ namespace SurtlingCoreFuel
                 }));
             }
         }
+
+        // ────────────────── OnAddFuel — intercept surtling core insertion ──────────────────
 
         [HarmonyPatch(typeof(Smelter), "OnAddFuel", typeof(Switch), typeof(Humanoid), typeof(ItemDrop.ItemData))]
         internal static class SmelterOnAddFuelPatch
@@ -178,12 +211,13 @@ namespace SurtlingCoreFuel
                 }
                 else if (item == null)
                 {
+                    // Auto-select: prefer vanilla coal if available, fall back to cores
                     if (__instance.m_fuelItem != null)
                     {
                         var fuelName = __instance.m_fuelItem.m_itemData.m_shared.m_name;
                         if (user.GetInventory().HaveItem(fuelName, true))
                         {
-                            return true;
+                            return true; // let vanilla handle coal
                         }
                     }
 
@@ -195,23 +229,22 @@ namespace SurtlingCoreFuel
                     return true;
                 }
 
+                // Check space for 1 slot
                 if (currentFuel > __instance.m_maxFuel - 1f)
                 {
                     __result = false;
                     return false;
                 }
 
-                var units = Mathf.Max(1, SurtlingCoreFuelMultiplier?.Value ?? 1);
-                var space = __instance.m_maxFuel - Mathf.CeilToInt(currentFuel);
-                var toAdd = Mathf.Min(units, space);
-
                 user.GetInventory().RemoveItem(coreItem, 1);
-                nview.InvokeRPC(RpcAddCoreFuel, new object[] { toAdd });
+                nview.InvokeRPC(RpcAddCoreFuel, new object[] { 1 });
 
                 __result = true;
                 return false;
             }
         }
+
+        // ────────────────── IsItemAllowed overloads ──────────────────
 
         [HarmonyPatch(typeof(Smelter), "IsItemAllowed", typeof(ItemDrop.ItemData))]
         internal static class SmelterIsItemAllowedItemPatch
@@ -247,6 +280,8 @@ namespace SurtlingCoreFuel
             }
         }
 
+        // ────────────────── Hover text ──────────────────
+
         [HarmonyPatch(typeof(Smelter), "OnHoverAddFuel")]
         internal static class SmelterOnHoverAddFuelPatch
         {
@@ -262,6 +297,144 @@ namespace SurtlingCoreFuel
                 {
                     __result = __result.Replace(coalName, coalName + " / Surtling Core");
                 }
+            }
+        }
+
+        // ────────────────── Core mechanic: inflate / deflate around UpdateSmelter ──────────────────
+        //
+        // Strategy:
+        //   Prefix  — inflate core fuel by the multiplier so the game "sees" more fuel
+        //   Postfix — deflate back, attributing burn proportionally
+        //
+        // FIFO model: coal burns first, then core fuel.
+        //   inflated = coalPortion + coreFuel * multiplier
+        //   After the game burns some of that inflated total, we figure out how much
+        //   coal vs core was consumed and write the deflated values back.
+
+        [HarmonyPatch(typeof(Smelter), "UpdateSmelter")]
+        internal static class SmelterUpdateSmelterPatch
+        {
+            // Prefix → Postfix state (single-threaded, safe)
+            private static bool s_active;
+            private static float s_origFuel;
+            private static float s_origCoreFuel;
+            private static float s_inflatedTotal;
+            private static float s_coalPortion;
+            private static float s_inflatedCorePortion;
+            private static Smelter s_smelter;
+
+            private static void Prefix(Smelter __instance)
+            {
+                s_active = false;
+
+                if (!IsSmelterTarget(__instance))
+                {
+                    return;
+                }
+
+                var nview = GetNView(__instance);
+                if (nview == null || !nview.IsValid() || !nview.IsOwner())
+                {
+                    return;
+                }
+
+                var zdo = nview.GetZDO();
+                if (zdo == null)
+                {
+                    return;
+                }
+
+                var fuel = zdo.GetFloat(ZDOVars.s_fuel, 0f);
+                var coreFuel = zdo.GetFloat(ZdoCoreFuelKey, 0f);
+
+                // Clamp core fuel to never exceed total fuel
+                if (coreFuel > fuel)
+                {
+                    coreFuel = fuel;
+                }
+
+                // Nothing to inflate
+                if (coreFuel <= 0.0001f)
+                {
+                    return;
+                }
+
+                var m = Mathf.Max(1, SurtlingCoreFuelMultiplier?.Value ?? 1);
+                if (m <= 1)
+                {
+                    return;
+                }
+
+                // Save original values
+                s_origFuel = fuel;
+                s_origCoreFuel = coreFuel;
+                s_coalPortion = fuel - coreFuel;
+                s_inflatedCorePortion = coreFuel * m;
+                s_inflatedTotal = s_coalPortion + s_inflatedCorePortion;
+                s_smelter = __instance;
+
+                // Write inflated fuel so the game burns through it slowly
+                zdo.Set(ZDOVars.s_fuel, s_inflatedTotal);
+                s_active = true;
+            }
+
+            private static void Postfix(Smelter __instance)
+            {
+                if (!s_active || __instance != s_smelter)
+                {
+                    return;
+                }
+
+                s_active = false;
+
+                var nview = GetNView(__instance);
+                if (nview == null || !nview.IsValid())
+                {
+                    return;
+                }
+
+                var zdo = nview.GetZDO();
+                if (zdo == null)
+                {
+                    return;
+                }
+
+                var m = Mathf.Max(1, SurtlingCoreFuelMultiplier?.Value ?? 1);
+                var newInflated = zdo.GetFloat(ZDOVars.s_fuel, 0f);
+
+                // How much total inflated fuel was burned this frame
+                var burned = s_inflatedTotal - newInflated;
+
+                if (burned <= 0.0001f)
+                {
+                    // Nothing was consumed — restore original values exactly
+                    zdo.Set(ZDOVars.s_fuel, s_origFuel);
+                    return;
+                }
+
+                // FIFO: coal burns first, then core fuel
+                float newCoal;
+                float newCoreDeflated;
+
+                if (burned <= s_coalPortion)
+                {
+                    // Only coal was burned
+                    newCoal = s_coalPortion - burned;
+                    newCoreDeflated = s_origCoreFuel;
+                }
+                else
+                {
+                    // All coal is gone; remainder burned from inflated core pool
+                    newCoal = 0f;
+                    var coreBurnedInflated = burned - s_coalPortion;
+                    var remainingInflatedCore = s_inflatedCorePortion - coreBurnedInflated;
+                    newCoreDeflated = Mathf.Max(0f, remainingInflatedCore / m);
+                }
+
+                var newFuel = Mathf.Max(0f, newCoal + newCoreDeflated);
+
+                zdo.Set(ZDOVars.s_fuel, newFuel);
+                zdo.Set(ZdoCoreFuelKey, Mathf.Max(0f, newCoreDeflated));
             }
         }
     }
